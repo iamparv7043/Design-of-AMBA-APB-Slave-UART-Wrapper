@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APB UART — Device Communication Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0C1712; --panel: #13201A; --panel-2: #182A20; --panel-3: #1E3327;
+    --line: #24392C; --ink: #E9E6DC; --ink-dim: #8FA093;
+    --gold: #C9A227; --blue: #5FA8D3; --amber: #D96C4A; --focus: #C9A227;
+  }
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg:#EDE7D6; --panel:#F6F1E3; --panel-2:#EFE8D5; --panel-3:#E5DCC1;
+      --line:#D3C7A6; --ink:#22301F; --ink-dim:#5B6B52;
+      --gold:#96731A; --blue:#2E6E93; --amber:#B04E2E; color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg:#EDE7D6; --panel:#F6F1E3; --panel-2:#EFE8D5; --panel-3:#E5DCC1;
+    --line:#D3C7A6; --ink:#22301F; --ink-dim:#5B6B52;
+    --gold:#96731A; --blue:#2E6E93; --amber:#B04E2E; color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink); font-family:'Inter',sans-serif; min-height:100%; }
+  body { padding: 28px 16px 60px; }
+  .wrap { max-width: 1140px; margin: 0 auto; }
+  header { margin-bottom: 20px; }
+  .eyebrow { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--gold); margin-bottom:6px; }
+  h1 { font-size:26px; font-weight:700; margin:0 0 6px; letter-spacing:-0.01em; }
+  .sub { color:var(--ink-dim); font-size:14.5px; max-width:70ch; line-height:1.5; }
+
+  /* ---- topology diagram ---- */
+  .diagram-scroll { overflow-x:auto; padding-bottom:6px; margin-bottom:18px; }
+  .diagram {
+    display:flex; align-items:center; gap:0; min-width:920px;
+    padding: 10px 4px;
+  }
+  .device-box {
+    background: var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding: 14px; flex-shrink:0;
+  }
+  .device-box .dev-label {
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-dim);
+    letter-spacing:0.03em; margin-bottom:10px;
+  }
+  #boxA { width: 230px; }
+  #boxB, #boxC { width: 340px; }
+
+  .field-row { display:flex; gap:6px; margin-bottom:8px; }
+  input[type="text"] {
+    flex:1; background:var(--panel-2); border:1px solid var(--line); border-radius:6px;
+    color:var(--ink); font-family:'IBM Plex Mono',monospace; font-size:13px; padding:7px 9px; min-width:0;
+  }
+  input[type="text"]:focus-visible, button:focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
+  button {
+    font-family:'Inter',sans-serif; font-size:12.5px; font-weight:600; border-radius:6px;
+    border:1px solid var(--line); padding:7px 10px; cursor:pointer; background:var(--panel-2);
+    color:var(--ink); width:100%; margin-bottom:6px; transition: background .15s ease, transform .05s ease;
+  }
+  button:last-child { margin-bottom:0; }
+  button:hover:not(:disabled) { background: var(--line); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.tx { border-color: var(--gold); color: var(--gold); }
+  button.rx { border-color: var(--blue); color: var(--blue); }
+
+  .readout { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--ink-dim); margin-top:8px; line-height:1.6; }
+  .readout b { color:var(--ink); font-weight:600; }
+  .checkbox-row { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ink-dim); margin:6px 0 8px; font-family:'IBM Plex Mono',monospace; }
+
+  /* wires */
+  .wire-col { flex:1; min-width:90px; position:relative; height:120px; display:flex; flex-direction:column; justify-content:center; }
+  .wire-col.dual { justify-content:space-between; padding: 18px 0; }
+  .wire { position:relative; height:34px; display:flex; align-items:center; }
+  .wire-line { position:absolute; left:0; right:0; top:50%; height:2px; background:var(--line); }
+  .wire-line.tx { background: color-mix(in srgb, var(--gold) 45%, var(--line)); }
+  .wire-line.rx { background: color-mix(in srgb, var(--blue) 45%, var(--line)); }
+  .wire-tag {
+    position:absolute; top:-16px; left:50%; transform:translateX(-50%);
+    font-family:'IBM Plex Mono',monospace; font-size:9.5px; color:var(--ink-dim); white-space:nowrap;
+  }
+  .arrow { position:absolute; top:50%; width:0; height:0; border-style:solid; transform:translateY(-50%); }
+  .arrow.right { right:-1px; border-width:5px 0 5px 7px; border-color:transparent transparent transparent var(--line); }
+  .arrow.left { left:-1px; border-width:5px 7px 5px 0; border-color:transparent var(--line) transparent transparent; }
+  .arrow.tx { border-left-color: var(--gold); }
+  .arrow.rx { border-right-color: var(--blue); }
+
+  .pulse {
+    position:absolute; top:50%; transform:translate(-50%,-50%);
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; font-weight:700;
+    padding:2px 7px; border-radius:10px; white-space:nowrap; z-index:2;
+    transition: left 0.46s cubic-bezier(.4,0,.2,1);
+  }
+  .pulse.tx { background: var(--gold); color:#1a1400; }
+  .pulse.rx { background: var(--blue); color:#06131c; }
+  .pulse.apb { background: var(--ink); color: var(--bg); }
+
+  /* uart internal sub-sections */
+  .subsec { background: var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px 10px 8px; margin-bottom:8px; }
+  .subsec:last-of-type { margin-bottom:0; }
+  .subsec-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:7px; }
+  .subsec-head .name { font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:700; }
+  .subsec-head .name.tx { color: var(--gold); }
+  .subsec-head .name.rx { color: var(--blue); }
+  .state-pill { font-family:'IBM Plex Mono',monospace; font-size:9.5px; padding:2px 6px; border-radius:5px; border:1px solid var(--line); background:var(--panel); color:var(--ink-dim); }
+  .state-pill.on.tx { border-color:var(--gold); color:var(--gold); }
+  .state-pill.on.rx { border-color:var(--blue); color:var(--blue); }
+
+  .bitreg { display:flex; gap:3px; margin-bottom:5px; }
+  .bitcol { display:flex; flex-direction:column; align-items:center; gap:2px; flex:1; }
+  .bitidx { font-family:'IBM Plex Mono',monospace; font-size:8px; color:var(--ink-dim); }
+  .bitcell {
+    width:100%; aspect-ratio:1; border:1px solid var(--line); border-radius:4px;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-dim); background:var(--panel);
+  }
+  .bitcell.active.tx { border-color:var(--gold); color:var(--gold); font-weight:700; background: color-mix(in srgb, var(--gold) 18%, var(--panel)); }
+  .bitcell.active.rx { border-color:var(--blue); color:var(--blue); font-weight:700; background: color-mix(in srgb, var(--blue) 18%, var(--panel)); }
+  .bitcell.filled { color: var(--ink); }
+
+  .flag-line { display:flex; gap:6px; margin-top:6px; }
+  .flag-chip { flex:1; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:9.5px; padding:4px 4px; border-radius:5px; border:1px solid var(--line); background:var(--panel); color:var(--ink-dim); }
+  .flag-chip.on.tx { border-color:var(--gold); color:var(--gold); }
+  .flag-chip.on.rx { border-color:var(--blue); color:var(--blue); }
+
+  .reg-footer { display:flex; gap:8px; margin-top:8px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-dim); }
+  .reg-footer span b { color: var(--ink); }
+
+  /* global controls + log */
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .panel h2 { font-size:12px; color:var(--ink-dim); margin:0 0 10px; font-weight:600; }
+  .global-controls { display:flex; gap:10px; flex-wrap:wrap; }
+  .global-controls button { width:auto; flex:1; min-width:150px; margin-bottom:0; padding:10px 14px; font-size:13.5px; }
+  button.step { border-color: var(--ink); }
+  button.reset { border-color: var(--amber); color: var(--amber); }
+
+  .log-body { font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.7; max-height:200px; overflow-y:auto; }
+  .log-body div { white-space:pre-wrap; word-break:break-word; }
+  .log-body .cyc { color:var(--ink-dim); }
+  .log-body .tx-c { color:var(--gold); }
+  .log-body .rx-c { color:var(--blue); }
+  .log-body .apb-c { color:var(--ink); }
+  .log-body .err { color:var(--amber); }
+  .log-body .rst { color:var(--amber); }
+
+  ::-webkit-scrollbar { height:8px; width:8px; }
+  ::-webkit-scrollbar-thumb { background:var(--line); border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">module apb_uart — 50 MHz clk, 115200 baud</div>
+    <h1>APB UART — device communication view</h1>
+    <div class="sub">Three real devices on the bench: a CPU driving the register interface, the UART peripheral itself, and an external device on the other end of the serial wire. Watch data pulses travel the connections and land inside the shift registers.</div>
+  </header>
+
+  <div class="diagram-scroll">
+    <div class="diagram">
+
+      <div class="device-box" id="boxA">
+        <div class="dev-label">CPU — APB MASTER</div>
+        <div class="field-row">
+          <input type="text" id="txInput" value="41" maxlength="2">
+          <button class="tx" id="writeBtn" style="width:auto;">write</button>
+        </div>
+        <button id="readDataBtn">read DATA</button>
+        <button id="readStatusBtn">read STATUS</button>
+        <div class="readout">
+          last DATA read: <b id="lastReadVal">0x00</b><br>
+          last STATUS: <b id="lastStatusVal">0x00</b>
+        </div>
+      </div>
+
+      <div class="wire-col">
+        <div class="wire" id="apbWire">
+          <div class="wire-line"></div>
+          <div class="wire-tag">APB bus</div>
+        </div>
+      </div>
+
+      <div class="device-box" id="boxB">
+        <div class="dev-label">APB UART PERIPHERAL</div>
+
+        <div class="subsec">
+          <div class="subsec-head">
+            <span class="name tx">TX PATH</span>
+            <span class="state-pill" id="txStatePill">IDLE</span>
+          </div>
+          <div class="bitreg" id="txBitReg"></div>
+          <div class="flag-line"><div class="flag-chip" id="txBusyChip">tx_busy</div></div>
+        </div>
+
+        <div class="subsec">
+          <div class="subsec-head">
+            <span class="name rx">RX PATH</span>
+            <span class="state-pill" id="rxStatePill">IDLE</span>
+          </div>
+          <div class="bitreg" id="rxBitReg"></div>
+          <div class="flag-line"><div class="flag-chip" id="rxValidChip">rx_valid</div></div>
+        </div>
+
+        <div class="reg-footer">
+          <span>DATA(0x0)=<b id="dataRegFooter">0x00</b></span>
+          <span>STATUS(0x4)=<b id="statusRegFooter">0x00</b></span>
+        </div>
+      </div>
+
+      <div class="wire-col dual">
+        <div class="wire" id="txWire">
+          <div class="wire-line tx"></div>
+          <div class="arrow right tx"></div>
+          <div class="wire-tag">TX →</div>
+        </div>
+        <div class="wire" id="rxWire">
+          <div class="wire-line rx"></div>
+          <div class="arrow left rx"></div>
+          <div class="wire-tag">← RX</div>
+        </div>
+      </div>
+
+      <div class="device-box" id="boxC">
+        <div class="dev-label">EXTERNAL DEVICE</div>
+        <div class="field-row">
+          <input type="text" id="rxInput" value="4B" maxlength="2">
+          <button class="rx" id="simRxBtn" style="width:auto;">send</button>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="corruptStop">
+          <label for="corruptStop">corrupt stop bit</label>
+        </div>
+
+        <div class="subsec">
+          <div class="subsec-head">
+            <span class="name rx">SENDING → RX</span>
+            <span class="state-pill" id="devSendPill">IDLE</span>
+          </div>
+          <div class="bitreg" id="devSendBitReg"></div>
+        </div>
+
+        <div class="subsec">
+          <div class="subsec-head">
+            <span class="name tx">RECEIVING ← TX</span>
+            <span class="state-pill" id="devRecvPill">IDLE</span>
+          </div>
+          <div class="bitreg" id="devRecvBitReg"></div>
+        </div>
+
+        <div class="readout">
+          last byte received (via TX): <b id="lastTxReceived">—</b>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>clock control</h2>
+    <div class="global-controls">
+      <button class="step" id="stepBtn">step one bit period →</button>
+      <button class="reset" id="resetBtn">reset (presetn = 0)</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>transaction log</h2>
+    <div class="log-body" id="logBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const el = id => document.getElementById(id);
+  const hex2 = n => n.toString(16).toUpperCase().padStart(2,'0');
+  function parseHex(input){
+    let v = parseInt(input.value, 16);
+    if (isNaN(v)) v = 0;
+    v = Math.max(0, Math.min(255, v));
+    input.value = hex2(v);
+    return v;
+  }
+
+  let cyc = 0;
+  let tx = { state:'IDLE', busy:false, wdata:0, shift:0, bitcnt:0 };
+  let rx = { state:'IDLE', valid:false, data:0, shift:0, bitcnt:0, queue:null };
+  let lastTxReceivedByte = null;
+
+  const logBody = el('logBody');
+  function log(html, cls){
+    const line = document.createElement('div');
+    line.innerHTML = '<span class="cyc">#' + cyc + '</span>  ' + html;
+    if (cls) line.classList.add(cls);
+    logBody.appendChild(line);
+    logBody.scrollTop = logBody.scrollHeight;
+  }
+
+  // ---- pulse animation along a wire ----
+  function firePulse(wireId, label, colorClass, reverse, cb){
+    const wire = el(wireId);
+    const span = document.createElement('div');
+    span.className = 'pulse ' + colorClass;
+    span.textContent = label;
+    span.style.left = reverse ? '100%' : '0%';
+    wire.appendChild(span);
+    void span.offsetWidth; // force reflow
+    requestAnimationFrame(() => {
+      span.style.left = reverse ? '0%' : '100%';
+    });
+    setTimeout(() => {
+      span.remove();
+      if (cb) cb();
+    }, 480);
+  }
+
+  // ---- actions ----
+  function writeData(){
+    const val = parseHex(el('txInput'));
+    if (tx.busy){ log('<span class="tx-c">APB WRITE DATA</span> 0x' + hex2(val) + ' ignored — tx_busy=1'); return; }
+    firePulse('apbWire', 'WR 0x' + hex2(val), 'apb', false, () => {
+      tx.wdata = val; tx.busy = true; tx.state = 'START';
+      log('<span class="tx-c">APB WRITE DATA</span> 0x' + hex2(val) + ' → tx armed (tx_busy=1)');
+      render();
+    });
+  }
+
+  function readData(){
+    const val = rx.data, wasValid = rx.valid;
+    firePulse('apbWire', '0x' + hex2(val), 'apb', true, () => {
+      rx.valid = false;
+      log('<span class="tx-c">APB READ DATA</span> → 0x' + hex2(val) + (wasValid ? '' : ' (stale — rx_valid already 0)'));
+      el('lastReadVal').textContent = '0x' + hex2(val);
+      render();
+    });
+  }
+
+  function readStatus(){
+    const statusByte = (rx.valid ? 2 : 0) | (tx.busy ? 1 : 0);
+    firePulse('apbWire', 'ST 0x' + hex2(statusByte), 'apb', true, () => {
+      log('APB READ STATUS → 0x' + hex2(statusByte) + '  (tx_busy=' + (tx.busy?1:0) + ', rx_valid=' + (rx.valid?1:0) + ')');
+      el('lastStatusVal').textContent = '0x' + hex2(statusByte);
+    });
+  }
+
+  function simulateRx(){
+    if (rx.queue){ log('<span class="rx-c">rx pin busy</span> — a byte is already being received'); return; }
+    const val = parseHex(el('rxInput'));
+    const bits = [];
+    for (let i=0;i<8;i++) bits.push((val >> i) & 1);
+    const stopBit = el('corruptStop').checked ? 0 : 1;
+    rx.queue = { bits: [0, ...bits, stopBit], idx: 0, byte: val };
+    log('<span class="rx-c">external device</span> driving 0x' + hex2(val) + ' onto rx pin' + (stopBit===0 ? ' <span class="err">(corrupted stop bit)</span>' : ''));
+    render();
+  }
+
+  function doStep(){
+    cyc++;
+
+    // ---- compute TX next ----
+    let txLine = 1, txLabel = null;
+    const prevTxState = tx.state;
+    switch (tx.state){
+      case 'START': txLine=0; txLabel='ST'; tx.state='DATA'; tx.bitcnt=0; tx.shift=tx.wdata; break;
+      case 'DATA':
+        txLine = (tx.shift >> tx.bitcnt) & 1; txLabel = 'D' + tx.bitcnt + '=' + txLine;
+        if (tx.bitcnt === 7) tx.state = 'STOP'; else tx.bitcnt++;
+        break;
+      case 'STOP':
+        txLine = 1; txLabel = 'SP'; tx.busy = false; tx.state = 'IDLE';
+        break;
+      default: txLabel = null;
+    }
+
+    // ---- compute RX next ----
+    let rxLabel = null, rxDone = null;
+    if (rx.queue){
+      const bit = rx.queue.bits[rx.queue.idx];
+      if (rx.state === 'IDLE'){
+        rxLabel = 'ST'; rx.state='DATA'; rx.bitcnt=0; rx.shift=0; rx.queue.idx++;
+      } else if (rx.state === 'DATA'){
+        rxLabel = 'D' + rx.bitcnt + '=' + bit;
+        rx.shift |= (bit << rx.bitcnt);
+        rx.queue.idx++;
+        if (rx.bitcnt === 7) rx.state='STOP'; else rx.bitcnt++;
+      } else if (rx.state === 'STOP'){
+        rxLabel = 'SP'; rx.queue.idx++;
+        rxDone = { ok: bit===1, byte: rx.shift };
+        rx.state = 'IDLE'; rx.queue = null;
+      }
+    }
+
+    let pending = 2;
+    const finish = () => {
+      pending--;
+      if (pending > 0) return;
+      if (prevTxState === 'STOP' || (prevTxState==='DATA' && tx.state==='STOP' && false)) {}
+      if (txLabel === 'SP') { lastTxReceivedByte = tx.wdata; el('lastTxReceived').textContent = '0x' + hex2(lastTxReceivedByte); log('<span class="tx-c">TX complete</span> — external device received 0x' + hex2(lastTxReceivedByte)); }
+      if (rxDone){
+        if (rxDone.ok){ rx.valid = true; rx.data = rxDone.byte; log('<span class="rx-c">RX frame complete</span> → rx_valid=1, byte=0x' + hex2(rxDone.byte)); }
+        else { log('<span class="err">RX framing error</span> (stop bit low) — byte 0x' + hex2(rxDone.byte) + ' dropped'); }
+      }
+      render();
+    };
+
+    if (txLabel) firePulse('txWire', txLabel, 'tx', false, finish); else finish();
+    if (rxLabel) firePulse('rxWire', rxLabel, 'rx', true, finish); else finish();
+  }
+
+  function doReset(){
+    cyc++;
+    tx = { state:'IDLE', busy:false, wdata:0, shift:0, bitcnt:0 };
+    rx = { state:'IDLE', valid:false, data:0, shift:0, bitcnt:0, queue:null };
+    lastTxReceivedByte = null;
+    el('lastReadVal').textContent = '0x00';
+    el('lastStatusVal').textContent = '0x00';
+    el('lastTxReceived').textContent = '—';
+    log('<span class="rst">presetn = 0</span> — TX/RX state and registers cleared', 'rst');
+    render();
+  }
+
+  // ---- render helpers ----
+  function renderBitReg(containerId, value, highlightIdx, revealMask, colorClass){
+    const c = el(containerId);
+    c.innerHTML = '';
+    for (let i=7;i>=0;i--){
+      const col = document.createElement('div'); col.className='bitcol';
+      const idxLbl = document.createElement('div'); idxLbl.className='bitidx'; idxLbl.textContent=i;
+      const cell = document.createElement('div');
+      const revealed = revealMask ? revealMask[i] : true;
+      cell.className = 'bitcell' + (revealed ? ' filled' : '') + (i===highlightIdx ? ' active ' + colorClass : '');
+      cell.textContent = revealed ? ((value >> i) & 1) : '·';
+      col.appendChild(idxLbl); col.appendChild(cell);
+      c.appendChild(col);
+    }
+  }
+
+  function render(){
+    // TX subsection
+    el('txStatePill').textContent = tx.state === 'DATA' ? ('DATA bit ' + tx.bitcnt + '/8') : tx.state;
+    el('txStatePill').className = 'state-pill' + (tx.state !== 'IDLE' ? ' on tx' : '');
+    const txHighlight = tx.state === 'START' ? -1 : (tx.state === 'DATA' ? tx.bitcnt : (tx.state==='STOP' ? -1 : null));
+    renderBitReg('txBitReg', tx.busy ? tx.wdata : 0, txHighlight, tx.busy ? null : [false,false,false,false,false,false,false,false], 'tx');
+    el('txBusyChip').className = 'flag-chip' + (tx.busy ? ' on tx' : '');
+
+    // RX subsection
+    el('rxStatePill').textContent = rx.state === 'DATA' ? ('DATA bit ' + rx.bitcnt + '/8') : (rx.queue || rx.state!=='IDLE' ? rx.state : 'IDLE');
+    el('rxStatePill').className = 'state-pill' + (rx.queue ? ' on rx' : '');
+    const revealMask = [];
+    for (let i=0;i<8;i++) revealMask.push(rx.state==='DATA' ? i < rx.bitcnt : (rx.state==='STOP' || rx.valid));
+    renderBitReg('rxBitReg', rx.valid ? rx.data : rx.shift, rx.state==='DATA' ? rx.bitcnt : null, revealMask, 'rx');
+    el('rxValidChip').className = 'flag-chip' + (rx.valid ? ' on rx' : '');
+
+    const statusByte = (rx.valid ? 2 : 0) | (tx.busy ? 1 : 0);
+    el('dataRegFooter').textContent = '0x' + hex2(rx.data);
+    el('statusRegFooter').textContent = '0x' + hex2(statusByte);
+
+    el('writeBtn').disabled = tx.busy;
+    el('simRxBtn').disabled = !!rx.queue;
+
+    // External device — outgoing register (mirrors the RX path, from the sender's side)
+    const devSendState = rx.queue ? rx.state : 'IDLE';
+    el('devSendPill').textContent = (rx.queue && rx.state === 'DATA') ? ('DATA bit ' + rx.bitcnt + '/8') : devSendState;
+    el('devSendPill').className = 'state-pill' + (rx.queue ? ' on rx' : '');
+    const devSendByte = rx.queue ? rx.queue.byte : 0;
+    const devSendHighlight = (rx.queue && rx.state === 'DATA') ? rx.bitcnt : null;
+    renderBitReg('devSendBitReg', devSendByte, devSendHighlight, rx.queue ? null : [false,false,false,false,false,false,false,false], 'rx');
+
+    // External device — incoming register (mirrors the TX path, from the receiver's side)
+    const devRecvActive = tx.busy;
+    el('devRecvPill').textContent = (tx.busy && tx.state === 'DATA') ? ('DATA bit ' + tx.bitcnt + '/8') : (tx.busy ? tx.state : (lastTxReceivedByte !== null ? 'DONE' : 'IDLE'));
+    el('devRecvPill').className = 'state-pill' + (tx.busy ? ' on tx' : '');
+    const devRecvValue = tx.busy ? tx.shift : (lastTxReceivedByte !== null ? lastTxReceivedByte : 0);
+    const devRecvHighlight = (tx.busy && tx.state === 'DATA') ? tx.bitcnt : null;
+    const devRecvReveal = [];
+    for (let i=0;i<8;i++){
+      devRecvReveal.push(tx.busy
+        ? (tx.state === 'DATA' ? i < tx.bitcnt : (tx.state === 'STOP'))
+        : (lastTxReceivedByte !== null));
+    }
+    renderBitReg('devRecvBitReg', devRecvValue, devRecvHighlight, devRecvReveal, 'tx');
+  }
+
+  render();
+  log('presetn = 1 — bus idle, TX/RX lines idle high, ready');
+
+  el('writeBtn').addEventListener('click', writeData);
+  el('readDataBtn').addEventListener('click', readData);
+  el('readStatusBtn').addEventListener('click', readStatus);
+  el('simRxBtn').addEventListener('click', simulateRx);
+  el('stepBtn').addEventListener('click', doStep);
+  el('resetBtn').addEventListener('click', doReset);
+  el('txInput').addEventListener('change', () => parseHex(el('txInput')));
+  el('rxInput').addEventListener('change', () => parseHex(el('rxInput')));
+})();
+</script>
+</body>
+</html>
